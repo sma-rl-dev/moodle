@@ -1,0 +1,14 @@
+# Tester-env web image for Moodle.
+#
+# Base is moodlehq/moodle-php-apache:8.3 -- a PHP+Apache RUNTIME image
+# (no Moodle code inside). The Moodle application source stays editable:
+# it is bind-mounted from the repo root at runtime, so PHP mutations take
+# effect immediately with no rebuild. This image only adds tester-env
+# PHP tuning on top of the runtime base.
+FROM moodlehq/moodle-php-apache:8.3
+
+# Moodle requires max_input_vars >= 5000.
+RUN echo "max_input_vars = 5000" > /usr/local/etc/php/conf.d/tester-env-moodle.ini
+
+# moodledata mount point (named volume mounted at runtime).
+RUN mkdir -p /var/www/moodledata && chown www-data:www-data /var/www/moodledata

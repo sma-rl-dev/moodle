@@ -1,0 +1,69 @@
+# Tester-env compose overlay for Moodle (fork baseline, apps/moodle).
+# Lives inside the fork submodule as docker-compose.tester-env.yml.
+#
+# Strategy: webserver built from Dockerfile.web (runtime base
+# moodlehq/moodle-php-apache:8.3 + php tuning) with the fork's
+# v5.2.3 source bind-mounted from the repo root, so mutations need no rebuild.
+# DB is postgres:17. No subnet pin (default pools; host LAN is 192.168/16).
+services:
+  webserver:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    image: ${IMAGE_TAG:-tester-env-moodle:dev}
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      # Bound to 0.0.0.0 (not 127.0.0.1) so browser-checker containers on the
+      # default docker bridge can reach the app via the host gateway
+      # (http://172.17.0.1:8000) or LAN IP (http://192.168.0.5:8000).
+      # wwwroot stays http://localhost:8000 for host verification.
+      - "0.0.0.0:${PORT:-8000}:80"
+    volumes:
+      - .:/var/www/html
+      - moodledata:/var/www/moodledata
+    environment:
+      MOODLE_DOCKER_RUNNING: 1
+      MOODLE_DOCKER_DBTYPE: pgsql
+      MOODLE_DOCKER_DBNAME: moodle
+      MOODLE_DOCKER_DBUSER: moodle
+      MOODLE_DOCKER_DBPASS: "m@0dl3ing"
+      # Default bridge gateway (docker network inspect bridge -> 172.17.0.0/16
+      # gw=172.17.0.1): reachable both from the host shell AND from
+      # browser-checker containers on the default bridge (which have no
+      # host.docker.internal DNS -- NXDOMAIN verified 2026-09-17).
+      # Moodle 303-redirects any Host mismatch to wwwroot, so wwwroot MUST be
+      # the URL the browser uses; localhost would strand bridge browsers.
+      MOODLE_DOCKER_WEB_HOST: ${WEB_HOST:-172.17.0.1}
+      MOODLE_DOCKER_WEB_PORT: ${PORT:-8000}
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: moodle
+      POSTGRES_PASSWORD: "m@0dl3ing"
+      POSTGRES_DB: moodle
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U moodle -d moodle"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  pgdata:
+    name: moodle-pgdata${RUN_ID_SUFFIX:-}
+  moodledata:
+    name: moodle-moodledata${RUN_ID_SUFFIX:-}
+
+# Daemon default pools exhausted: pin a free 10.x /24 verified against
+# `ip route` + `docker network inspect` (10.202.0.0/24 unused; host LAN is
+# 192.168.0.0/24 and 10.8.0.0/24 is LAN-routed -- both avoided).
+networks:
+  default:
+    name: tester-env-moodle${RUN_ID_SUFFIX:-}-net
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.202.0.0/24

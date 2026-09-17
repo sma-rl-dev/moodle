@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+# tester-env CLI for Moodle (fork baseline: lives at apps/moodle/tester-env).
+# Uniform interface: deploy | seed | verify | reset | stop | logs | status | help
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+# IMAGE_TAG set by scripts/rl-env to a content-addressed tag so identical
+# (baseline, patch-set) combos share an image. Manual invocations get :dev.
+IMAGE_NAME="${IMAGE_TAG:-tester-env-moodle:dev}"
+SUFFIX="${RUN_ID_SUFFIX:-}"
+PROJECT="tester-env-moodle${SUFFIX}"
+COMPOSE="docker compose -p ${PROJECT} -f docker-compose.tester-env.yml"
+PORT="${PORT:-8000}"
+# Default = default-bridge gateway so one URL serves host shell and
+# bridge-network browser containers alike (Moodle redirects Host mismatches
+# to wwwroot; localhost would strand bridge browsers). Override with
+# WEB_HOST=localhost for host-only use.
+WEB_HOST="${WEB_HOST:-172.17.0.1}"
+ADMIN_USER="admin"
+ADMIN_PASS="${ADMIN_PASS:-test}"
+ADMIN_EMAIL="admin@example.com"
+BASE_URL="http://${WEB_HOST}:${PORT}"
+
+export IMAGE_TAG="$IMAGE_NAME" RUN_ID_SUFFIX="$SUFFIX" PORT WEB_HOST
+
+cmd_deploy() {
+  echo "==> Building web image ${IMAGE_NAME} (runtime base + php tuning; app source bind-mounted)"
+  IMAGE_TAG="$IMAGE_NAME" PORT="$PORT" WEB_HOST="$WEB_HOST" RUN_ID_SUFFIX="$SUFFIX" \
+    docker compose -p "$PROJECT" -f docker-compose.tester-env.yml build webserver
+  echo "==> Starting db + webserver on ${BASE_URL}"
+  IMAGE_TAG="$IMAGE_NAME" PORT="$PORT" WEB_HOST="$WEB_HOST" RUN_ID_SUFFIX="$SUFFIX" \
+    docker compose -p "$PROJECT" -f docker-compose.tester-env.yml up -d
+  echo "==> Generating config.php from config.tester-env.php"
+  cp config.tester-env.php config.php
+  echo "==> Fixing moodledata ownership (www-data)"
+  $COMPOSE exec -T --user root webserver chown -R www-data:www-data /var/www/moodledata
+  echo "==> Waiting for webserver to respond"
+  for i in $(seq 1 60); do
+    if curl -fs -o /dev/null "$BASE_URL/" 2>/dev/null; then break; fi
+    sleep 2
+    if [ "$i" -eq 60 ]; then echo "webserver did not come up"; exit 1; fi
+  done
+  if $COMPOSE exec -T webserver php -r 'try { $d = new PDO("pgsql:host=db;dbname=moodle", "moodle", "m@0dl3ing"); } catch (Exception $e) { exit(1); }' 2>/dev/null \
+     && $COMPOSE exec -T webserver test -f /var/www/moodledata/.installed 2>/dev/null; then
+    echo "==> Already installed (moodledata marker present); skipping CLI install"
+  else
+    echo "==> Installing Moodle database via CLI (admin: ${ADMIN_USER} / fixed pass)"
+    $COMPOSE exec -T webserver php admin/cli/install_database.php \
+      --agree-license \
+      --fullname="Docker moodle" \
+      --shortname="docker_moodle" \
+      --summary="Docker moodle site" \
+      --adminuser="$ADMIN_USER" \
+      --adminpass="$ADMIN_PASS" \
+      --adminemail="$ADMIN_EMAIL"
+    $COMPOSE exec -T webserver touch /var/www/moodledata/.installed
+  fi
+  echo "==> Deploy done: ${BASE_URL} (admin ${ADMIN_USER})"
+}
+
+cmd_seed() {
+  echo "==> Seeding deterministic Science Department dataset (idempotent; safe to re-run)"
+  $COMPOSE exec -T webserver php < "$SCRIPT_DIR/tester-env-seed.php"
+  echo "==> Seed done"
+}
+
+cmd_verify() {
+  echo "==> Checking ${BASE_URL}/login/index.php returns HTTP 200"
+  code="$(curl -s -o /dev/null -w '%{http_code}' "$BASE_URL/login/index.php")"
+  echo "login page HTTP: $code"
+  [ "$code" = "200" ] || exit 1
+  echo "==> Checking admin user exists via CLI"
+  $COMPOSE exec -T webserver php admin/cli/cfg.php --name=wwwroot
+  echo "==> Checking deterministic seed profile via CLI"
+  $COMPOSE exec -T webserver php < "$SCRIPT_DIR/tester-env-verify.php"
+  echo "==> Verify OK"
+}
+
+cmd_reset() {
+  echo "==> Reset: compose down -v (containers + pgdata/moodledata volumes; image kept)"
+  $COMPOSE down -v || true
+  rm -f config.php
+  echo "==> Reset done; run ./tester-env deploy for a clean deterministic install"
+}
+
+cmd_stop() {
+  echo "==> Stopping containers (data preserved)"
+  $COMPOSE stop
+}
+
+cmd_logs() {
+  $COMPOSE logs --tail="${1:-100}" "$@"
+}
+
+cmd_status() {
+  $COMPOSE ps
+  echo "---"
+  curl -sL -o /dev/null -w 'web %{http_code}\n' "$BASE_URL/" || echo "web unreachable"
+}
+
+case "${1:-help}" in
+  deploy) cmd_deploy ;;
+  seed) cmd_seed ;;
+  verify) cmd_verify ;;
+  reset) cmd_reset ;;
+  stop) cmd_stop ;;
+  logs) shift; cmd_logs "$@" ;;
+  status) cmd_status ;;
+  help|*) sed -n '2,6p' "$0"; echo "usage: $0 {deploy|seed|verify|reset|stop|logs|status|help}" ;;
+esac
