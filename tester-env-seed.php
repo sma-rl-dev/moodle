@@ -25,6 +25,7 @@ define('SEED_ASSIGN_DUE', gmmktime(23, 59, 0, 2, 2, 2026));
 define('SEED_FORUM_POST_TIME', gmmktime(10, 0, 0, 1, 15, 2026));
 define('SEED_DATA_ENTRY_TIME', gmmktime(11, 0, 0, 1, 16, 2026));
 define('SEED_BLOCK_TIME', gmmktime(9, 0, 0, 1, 13, 2026));
+define('SEED_ANNOUNCE_TIME', gmmktime(9, 0, 0, 1, 19, 2026));
 define('SEED_USER_PASSWORD', 'Seedpass1!');
 
 // Stable keys for scenario seed requirements (see scenarios/moodle/seed.manifest.json).
@@ -32,6 +33,10 @@ define('SEED_RSS_FEED_TITLE', 'Biology Dept News');
 define('SEED_RSS_FEED_URL', 'http://127.0.0.1/tester-env-seed-rss.xml');
 define('SEED_HIDDEN_CATEGORY_IDNUMBER', 'HID');
 define('SEED_DATA_ACTIVITY_NAME', 'Lab Specimen Log');
+// Requirement admin-announcement: stable subject of the admin-authored
+// announcement discussion in the CHEM101 Announcements news forum, visible
+// to teacher_maria + student_james on the course page.
+define('SEED_ADMIN_ANNOUNCE_SUBJECT', 'Welcome to Chemistry Fundamentals');
 
 // Run capability checks as the site admin.
 \core\cron::setup_user();
@@ -86,7 +91,15 @@ function seed_ensure_category($name, $idnumber, $visible = 1) {
 function seed_ensure_course($categoryid, $fullname, $shortname, $summary) {
     global $DB;
     if ($c = $DB->get_record('course', ['shortname' => $shortname])) {
-        cli_writeln("course exists: {$shortname} (id {$c->id})");
+        // Requirement admin-course-visibility: courses are always normalised
+        // back to visible so an admin hide/show drill ends in a known state.
+        if ((int)$c->visible !== 1) {
+            $DB->set_field('course', 'visible', 1, ['id' => $c->id]);
+            cli_writeln("course visibility normalised: {$shortname} visible=1 (admin hide is reversible)");
+            $c = $DB->get_record('course', ['id' => $c->id]);
+        } else {
+            cli_writeln("course exists: {$shortname} (id {$c->id})");
+        }
         return $c;
     }
     $data = new stdClass();
@@ -391,6 +404,35 @@ function seed_ensure_data_activity($courseid) {
     return $DB->get_record('data', ['id' => $data->id]);
 }
 
+function seed_ensure_news_announcement($newsforum, $author, $name, $message) {
+    // Requirement admin-announcement: one fixed admin-authored discussion in
+    // a news (Announcements) forum, so teacher + learner dashboards show the
+    // same admin-posted notice. Keyed by stable subject; never touches the
+    // module table, so empty-course module-count oracles are unaffected.
+    global $DB, $CFG;
+    if ($d = $DB->get_record('forum_discussions', ['forum' => $newsforum->id, 'name' => $name])) {
+        cli_writeln("news announcement exists: {$name} (id {$d->id})");
+        return $d;
+    }
+    require_once($CFG->dirroot . '/mod/forum/lib.php');
+    $discussion = new stdClass();
+    $discussion->course = $newsforum->course;
+    $discussion->forum = $newsforum->id;
+    $discussion->name = $name;
+    $discussion->message = $message;
+    $discussion->messageformat = FORMAT_HTML;
+    $discussion->messagetrust = 0;
+    $discussion->mailnow = 0;
+    $discussion->groupid = -1;
+    $discussion->timestart = 0;
+    $discussion->timeend = 0;
+    $discussion->timenow = SEED_ANNOUNCE_TIME;
+    $discussion->pinned = 0;
+    $id = forum_add_discussion($discussion, null, null, $author->id);
+    cli_writeln("news announcement created: {$name} (id {$id})");
+    return $DB->get_record('forum_discussions', ['id' => $id]);
+}
+
 function seed_ensure_assign($courseid, $name, $intro) {
     global $DB;
     if ($a = $DB->get_record('assign', ['course' => $courseid, 'name' => $name])) {
@@ -440,6 +482,17 @@ $teacher = seed_ensure_user('teacher_maria', 'Maria', 'Santos', 'teacher.maria@e
 $student1 = seed_ensure_user('student_james', 'James', 'Carter', 'student.james@example.com');
 $student2 = seed_ensure_user('student_priya', 'Priya', 'Nair', 'student.priya@example.com');
 
+// Requirement admin-suspend-target: student_priya (least-used learner) is the
+// dedicated reversible suspend/reactivate target. Seed always restores all
+// seed users to active so an admin suspend drill ends in a known state;
+// teacher Participants lists and learner login then reflect the toggle.
+foreach ([$teacher, $student1, $student2] as $seeduser) {
+    if ((int)$seeduser->suspended !== 0) {
+        $DB->set_field('user', 'suspended', 0, ['id' => $seeduser->id]);
+        cli_writeln("user reactivated: {$seeduser->username}");
+    }
+}
+
 $cat = seed_ensure_category('Science Department', 'SCI');
 
 $bio = seed_ensure_course($cat->id, 'Introduction to Biology', 'BIO101',
@@ -478,7 +531,15 @@ seed_ensure_rss_block($bio->id, $rssfeed->id);
 // in BIO101 (MDL-87291 search then Clear-all oracle).
 seed_ensure_data_activity($bio->id);
 
+// Requirement admin-announcement: fixed admin notice in the CHEM101
+// Announcements news forum (visible to teacher_maria + student_james;
+// discussion rows do not count as modules).
+$chemnews = $DB->get_record('forum', ['course' => $chem->id, 'type' => 'news'], '*', MUST_EXIST);
+$siteadmin = $DB->get_record('user', ['username' => 'admin', 'deleted' => 0], '*', MUST_EXIST);
+seed_ensure_news_announcement($chemnews, $siteadmin, SEED_ADMIN_ANNOUNCE_SUBJECT,
+    '<p>Chemistry Fundamentals starts in week 2. Please read the lab safety notes before attending.</p>');
+
 rebuild_course_cache($bio->id, true);
 rebuild_course_cache($chem->id, true);
 
-cli_writeln('Seed complete: 3 users, 2 categories (SCI visible + HID hidden), 2 courses, 5 enrolments, BIO101 forum (ratings + 1 discussion) + assignment + RSS block + database activity.');
+cli_writeln('Seed complete: 3 users, 2 categories (SCI visible + HID hidden), 2 courses, 5 enrolments, BIO101 forum (ratings + 1 discussion) + assignment + RSS block + database activity, CHEM101 news forum + 1 admin announcement.');

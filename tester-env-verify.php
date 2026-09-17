@@ -40,6 +40,13 @@ foreach ([
         $u ? "(id {$u->id})" : '(missing)');
 }
 
+// Requirement admin-suspend-target: student_priya is the dedicated reversible
+// suspend/reactivate target; seed always restores active status.
+$priya = $DB->get_record('user', ['username' => 'student_priya', 'deleted' => 0]);
+check('student_priya active (admin suspend target reversible)',
+    $priya && (int)$priya->suspended === 0,
+    $priya ? "(id {$priya->id} suspended {$priya->suspended})" : '(missing)');
+
 // Category + courses.
 $cat = $DB->get_record('course_categories', ['idnumber' => 'SCI']);
 check('category SCI', $cat && $cat->name === 'Science Department', $cat ? "(id {$cat->id})" : '(missing)');
@@ -83,6 +90,22 @@ if ($bio && $chem) {
     $cheman = $DB->get_record('forum', ['course' => $chem->id, 'name' => 'Announcements', 'type' => 'news']);
     check('CHEM101 has only the default Announcements news forum', count($chemmods) == 1 && (bool)$cheman,
         '(got ' . count($chemmods) . ' module(s))');
+
+    // Requirement admin-course-visibility: both courses normalised visible so
+    // an admin hide/show drill is verifiable in teacher/learner course lists.
+    check('courses visible (admin hide/show reversible target)',
+        (int)$bio->visible === 1 && (int)$chem->visible === 1,
+        "(BIO101 visible {$bio->visible}, CHEM101 visible {$chem->visible})");
+
+    // Requirement admin-announcement: fixed admin notice in the CHEM101 news
+    // forum, visible to teacher_maria + student_james.
+    $siteadmin = $DB->get_record('user', ['username' => 'admin', 'deleted' => 0]);
+    $announce = $cheman
+        ? $DB->get_record('forum_discussions', ['forum' => $cheman->id, 'name' => 'Welcome to Chemistry Fundamentals'])
+        : false;
+    check('admin announcement in CHEM101 news forum',
+        $announce && $siteadmin && (int)$announce->userid === (int)$siteadmin->id,
+        $announce ? "(id {$announce->id} firstpost {$announce->firstpost})" : '(missing)');
 
     // Requirement hidden-category: HID exists and is hidden; SCI stays visible.
     $hid = $DB->get_record('course_categories', ['idnumber' => 'HID']);
@@ -164,4 +187,4 @@ if ($failures) {
     cli_writeln('VERIFY FAILED: ' . implode('; ', $failures));
     exit(1);
 }
-cli_writeln('VERIFY OK: seed profile matches (3 users, 2 courses, 3+2 enrolments, BIO101 forum (ratings) + assignment + RSS block + database, CHEM101 default news forum only, HID hidden).');
+cli_writeln('VERIFY OK: seed profile matches (3 users active, 2 courses visible, 3+2 enrolments, BIO101 forum (ratings) + assignment + RSS block + database, CHEM101 default news forum only + 1 admin announcement, HID hidden).');
