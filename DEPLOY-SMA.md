@@ -78,8 +78,26 @@ ids and counts).
   `Announcements` news forum -- intentional empty-course comparison).
 - Enrolments (manual plugin): BIO101 = teacher(editingteacher) + 2 students
   (3 total); CHEM101 = teacher + student_james (2 total).
+- Hidden category `Hidden Archive` (idnumber `HID`, visible 0) for the
+  calendar-subscription permission oracle; `SCI` stays visible.
+- Forum `Cell Biology Q&A`: average-of-ratings on a 5-point scale
+  (gradebook item max 5) + fixed discussion `Chromatid puzzle` by
+  student_james (2026-01-15 10:00 UTC) for rate/clear gradebook flows.
+- RSS: teacher-owned feed `Biology Dept News` (static local fixture
+  `public/tester-env-seed-rss.xml`, 3 fixed items, fetched by the server
+  from `http://127.0.0.1/tester-env-seed-rss.xml`) + one `rss_client`
+  block instance on the BIO101 course page (`course-view-*`, side-pre)
+  bound to the feed. `curlsecurityblockedhosts` is emptied by seed
+  (Moodle blocks loopback/private fetch hosts by default; this local
+  test site needs none of that list) and the `rss_client` block plugin
+  is enabled (disabled on fresh installs by core).
+- Database activity `Lab Specimen Log` in BIO101: text fields `Specimen`
+  + `Observation notes`, 3 approved entries (`Onion root tip slide` /
+  `Chloroplast model` / `DNA extraction sample`, 2026-01-16 11:00 UTC+),
+  default list/single/add/search templates generated.
 - Expected verify counts: 3 seed users (ids 3,4,5 from clean install),
-  courses ids 2,3, enrolments 3+2, BIO101 3 modules, CHEM101 1 module.
+  courses ids 2,3, enrolments 3+2, BIO101 4 modules (news forum + Q&A
+  forum + assignment + database), CHEM101 1 module.
 - Credentials: admin/test (site admin), all seed users `Seedpass1!`.
 - Static manifest: `scenarios/moodle/seed.manifest.json` (parent corpus repo).
 

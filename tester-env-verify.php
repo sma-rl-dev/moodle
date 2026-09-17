@@ -9,7 +9,7 @@ define('CLI_SCRIPT', true);
 require('/var/www/html/config.php');
 require_once($CFG->libdir . '/clilib.php');
 
-global $DB;
+global $DB, $CFG;
 
 define('SEED_COURSE_START', gmmktime(0, 0, 0, 1, 12, 2026));
 define('SEED_ASSIGN_DUE', gmmktime(23, 59, 0, 2, 2, 2026));
@@ -69,7 +69,8 @@ if ($bio && $chem) {
     check('teacher_maria is editingteacher in BIO101',
         $t && user_has_role_assignment($t->id, $roleteacher->id, $ctxbio->id));
 
-    // Activities: BIO101 has exactly 1 forum + 1 assignment; CHEM101 has none.
+    // Activities: BIO101 has exactly 1 forum + 1 assignment + 1 database;
+    // CHEM101 has none of its own.
     $forum = $DB->get_record('forum', ['course' => $bio->id, 'name' => 'Cell Biology Q&A']);
     check('forum Cell Biology Q&A in BIO101', (bool)$forum, $forum ? "(id {$forum->id})" : '(missing)');
     $assign = $DB->get_record('assign', ['course' => $bio->id, 'name' => 'Mitosis Lab Report']);
@@ -82,10 +83,85 @@ if ($bio && $chem) {
     $cheman = $DB->get_record('forum', ['course' => $chem->id, 'name' => 'Announcements', 'type' => 'news']);
     check('CHEM101 has only the default Announcements news forum', count($chemmods) == 1 && (bool)$cheman,
         '(got ' . count($chemmods) . ' module(s))');
+
+    // Requirement hidden-category: HID exists and is hidden; SCI stays visible.
+    $hid = $DB->get_record('course_categories', ['idnumber' => 'HID']);
+    check('category HID hidden', $hid && $hid->name === 'Hidden Archive' && (int)$hid->visible === 0,
+        $hid ? "(id {$hid->id} visible {$hid->visible})" : '(missing)');
+    check('category SCI still visible', $cat && (int)$cat->visible === 1);
+
+    // Requirement forum-ratings-enabled: average ratings on a 5-point scale,
+    // gradebook item reflects it, one fixed student discussion present.
+    check('forum Cell Biology Q&A ratings enabled',
+        $forum && (int)$forum->assessed === 1 && (int)$forum->scale === 5,
+        $forum ? "(assessed {$forum->assessed} scale {$forum->scale})" : '(missing)');
+    if ($forum) {
+        $gitem = $DB->get_record('grade_items', ['itemtype' => 'mod', 'itemmodule' => 'forum',
+            'iteminstance' => $forum->id, 'courseid' => $bio->id]);
+        check('gradebook item for rated forum (max 5)', $gitem && (float)$gitem->grademax == 5,
+            $gitem ? "(id {$gitem->id} max {$gitem->grademax})" : '(missing)');
+        $james = $DB->get_record('user', ['username' => 'student_james', 'deleted' => 0]);
+        $disc = $DB->get_record('forum_discussions', ['forum' => $forum->id, 'name' => 'Chromatid puzzle']);
+        check('seed discussion Chromatid puzzle by student_james',
+            $disc && $james && (int)$disc->userid === (int)$james->id && (int)$disc->assessed === 1,
+            $disc ? "(id {$disc->id} firstpost {$disc->firstpost})" : '(missing)');
+    }
+
+    // Requirement rss-feed-block: teacher-owned feed, RSS block in BIO101,
+    // plugin enabled, local fetch allowed and working.
+    $t = $DB->get_record('user', ['username' => 'teacher_maria', 'deleted' => 0]);
+    $feed = $DB->get_record('block_rss_client', ['title' => 'Biology Dept News']);
+    check('rss feed Biology Dept News owned by teacher_maria',
+        $feed && $t && (int)$feed->userid === (int)$t->id
+            && $feed->url === 'http://127.0.0.1/tester-env-seed-rss.xml'
+            && (int)$feed->shared === 0 && (int)$feed->skipuntil === 0,
+        $feed ? "(id {$feed->id})" : '(missing)');
+    $rssblock = $DB->get_record('block', ['name' => 'rss_client']);
+    check('rss_client block plugin enabled', $rssblock && (int)$rssblock->visible === 1);
+    $ctxbio = \context_course::instance($bio->id);
+    $binst = $DB->get_record('block_instances', ['blockname' => 'rss_client',
+        'parentcontextid' => $ctxbio->id, 'pagetypepattern' => 'course-view-*']);
+    $rsscfgok = false;
+    if ($binst && $feed) {
+        $cfg = @unserialize(base64_decode($binst->configdata));
+        $rsscfgok = ($cfg && isset($cfg->rssid) && in_array((int)$feed->id, array_map('intval', (array)$cfg->rssid)));
+    }
+    check('rss block instance in BIO101 bound to seed feed', $rsscfgok,
+        $binst ? "(instance {$binst->id})" : '(missing)');
+    $curlblock = $DB->get_record('config', ['name' => 'curlsecurityblockedhosts']);
+    check('curl host blocklist empty (local feed fetchable)', !$curlblock || trim((string)$curlblock->value) === '');
+    if ($feed) {
+        require_once($CFG->libdir . '/simplepie/moodle_simplepie.php');
+        $rss = new moodle_simplepie($feed->url);
+        $items = $rss->get_items();
+        check('seed rss feed fetches locally (3 items)', !$rss->error() && count($items) === 3,
+            $rss->error() ? ('(' . $rss->error() . ')') : ('(got ' . count($items) . ' item(s))'));
+    }
+
+    // Requirement database-activity: one activity, two fields, three fixed
+    // entries; search oracle term present.
+    $data = $DB->get_record('data', ['course' => $bio->id, 'name' => 'Lab Specimen Log']);
+    check('database activity Lab Specimen Log in BIO101', (bool)$data, $data ? "(id {$data->id})" : '(missing)');
+    if ($data) {
+        $nfields = $DB->count_records('data_fields', ['dataid' => $data->id]);
+        check('database has 2 fields', $nfields == 2, "(got {$nfields})");
+        $nrecords = $DB->count_records('data_records', ['dataid' => $data->id, 'approved' => 1]);
+        check('database has 3 approved entries', $nrecords == 3, "(got {$nrecords})");
+        $ncontent = $DB->count_records_sql(
+            'SELECT COUNT(*) FROM {data_content} c JOIN {data_records} r ON r.id = c.recordid
+              WHERE r.dataid = :dataid', ['dataid' => $data->id]);
+        check('database entry contents complete (3x2)', $ncontent == 6, "(got {$ncontent})");
+        $chloro = $DB->record_exists_sql(
+            'SELECT 1 FROM {data_content} c JOIN {data_records} r ON r.id = c.recordid
+              WHERE r.dataid = :dataid AND c.content = :content',
+            ['dataid' => $data->id, 'content' => 'Chloroplast model']);
+        check('database search oracle entry present (Chloroplast model)', (bool)$chloro);
+        check('database list template generated', !empty($data->listtemplate));
+    }
 }
 
 if ($failures) {
     cli_writeln('VERIFY FAILED: ' . implode('; ', $failures));
     exit(1);
 }
-cli_writeln('VERIFY OK: seed profile matches (3 users, 2 courses, 3+2 enrolments, BIO101 forum + assignment, CHEM101 default news forum only).');
+cli_writeln('VERIFY OK: seed profile matches (3 users, 2 courses, 3+2 enrolments, BIO101 forum (ratings) + assignment + RSS block + database, CHEM101 default news forum only, HID hidden).');

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Tester-env deterministic fixture: static department news feed for the
+     seeded RSS block in BIO101 (moodle-rss-viewfeed-course-scope seed).
+     Served by Apache from the web root as /tester-env-seed-rss.xml.
+     Fixed items; never fetched from the network. -->
+<rss version="2.0">
+  <channel>
+    <title>Biology Dept News</title>
+    <link>http://example.com/biology-news</link>
+    <description>Seeded Springfield Science Department announcements for RSS block assertions.</description>
+    <item>
+      <title>Spring term lab schedule published</title>
+      <link>http://example.com/biology-news/lab-schedule</link>
+      <description>Microscopy labs run Tuesdays and Thursdays from 2026-01-13.</description>
+    </item>
+    <item>
+      <title>Guest lecture: photosynthesis research</title>
+      <link>http://example.com/biology-news/guest-lecture</link>
+      <description>Dr. Alvarez visits on 2026-01-22 to discuss chloroplast signalling.</description>
+    </item>
+    <item>
+      <title>Field trip sign-up closes Friday</title>
+      <link>http://example.com/biology-news/field-trip</link>
+      <description>Reserve a seat for the botanical garden visit before 2026-01-16.</description>
+    </item>
+  </channel>
+</rss>
