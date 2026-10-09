@@ -513,8 +513,17 @@ seed_ensure_enrol($chem->id, $student1->id, 'student');
 
 seed_ensure_forum($bio->id, 'Cell Biology Q&A',
     'Ask questions about lectures and lab work. Maria monitors this forum on weekdays.');
-seed_ensure_assign($bio->id, 'Mitosis Lab Report',
+$labassign = seed_ensure_assign($bio->id, 'Mitosis Lab Report',
     'Write a 500-word report on the onion root tip mitosis experiment. Submit as PDF.');
+require_once($CFG->dirroot . '/mod/assign/locallib.php');
+$labcm = get_coursemodule_from_instance('assign', $labassign->id, $bio->id, false, MUST_EXIST);
+$labassignment = new assign(\context_module::instance($labcm->id), $labcm, $bio);
+$labfiles = $labassignment->get_submission_plugin_by_type('file');
+$labfiles->set_config('enabled', 1);
+$labfiles->set_config('maxfilesubmissions', 1);
+$labfiles->set_config('maxsubmissionsizebytes', 0);
+$labfiles->set_config('filetypeslist', '');
+cli_writeln('assignment file submission enabled: Mitosis Lab Report');
 
 // Requirement hidden-category: one hidden course category for the calendar
 // subscription permission oracle (MDL-87983).

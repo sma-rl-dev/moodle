@@ -92,6 +92,9 @@ if ($bio && $chem) {
         check('student_james can edit own submission',
             $james && $assignment->can_edit_submission($james->id, $james->id));
         check('assignment has a submission method', $assignment->is_any_submission_plugin_enabled());
+        $files = $assignment->get_submission_plugin_by_type('file');
+        check('assignment accepts file submissions',
+            $files && $files->is_enabled() && (int)$files->get_config('maxfilesubmissions') > 0);
         check('admin remains unenrolled in BIO101', $admin && !is_enrolled($ctxbio, $admin->id));
     }
     $chemmods = $DB->get_records_sql(
