@@ -8,7 +8,7 @@ cd "$SCRIPT_DIR"
 # IMAGE_TAG set by scripts/rl-env to a content-addressed tag so identical
 # (baseline, patch-set) combos share an image. Manual invocations get :dev.
 IMAGE_NAME="${IMAGE_TAG:-tester-env-moodle:dev}"
-SUFFIX="${RUN_ID_SUFFIX:-}"
+SUFFIX="-${RUN_ID:?Managed Moodle commands require RUN_ID}"
 PROJECT="tester-env-moodle${SUFFIX}"
 COMPOSE="docker compose -p ${PROJECT} -f docker-compose.tester-env.yml"
 PORT="${PORT:-8000}"
@@ -16,7 +16,7 @@ PORT="${PORT:-8000}"
 # bridge-network browser containers alike (Moodle redirects Host mismatches
 # to wwwroot; localhost would strand bridge browsers). Override with
 # WEB_HOST=localhost for host-only use.
-WEB_HOST="${WEB_HOST:-172.17.0.1}"
+WEB_HOST="${WEB_HOST:-${TESTER_ENV_HOST_GATEWAY:-172.17.0.1}}"
 ADMIN_USER="admin"
 ADMIN_PASS="${ADMIN_PASS:-test}"
 ADMIN_EMAIL="admin@example.com"
@@ -79,7 +79,7 @@ cmd_verify() {
 
 cmd_reset() {
   echo "==> Reset: compose down -v (containers + pgdata/moodledata volumes; image kept)"
-  $COMPOSE down -v || true
+  $COMPOSE down -v
   rm -f config.php
   echo "==> Reset done; run ./tester-env deploy for a clean deterministic install"
 }

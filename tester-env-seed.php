@@ -17,7 +17,7 @@ require_once($CFG->dirroot . '/lib/enrollib.php');
 global $DB, $CFG;
 
 // Fixed timestamps (UTC container): course term starting Mon 2026-01-12,
-// assignment window 2026-01-12 09:00 -> 2026-02-02 23:59,
+// assignment opens 2026-01-12 09:00, due 2026-02-02 23:59; late work allowed,
 // forum seed post 2026-01-15 10:00, database entries 2026-01-16 11:00+.
 define('SEED_COURSE_START', gmmktime(0, 0, 0, 1, 12, 2026));
 define('SEED_ASSIGN_OPEN', gmmktime(9, 0, 0, 1, 12, 2026));
@@ -30,7 +30,7 @@ define('SEED_USER_PASSWORD', 'Seedpass1!');
 
 // Stable keys for scenario seed requirements (see scenarios/moodle/seed.manifest.json).
 define('SEED_RSS_FEED_TITLE', 'Biology Dept News');
-define('SEED_RSS_FEED_URL', 'http://127.0.0.1/tester-env-seed-rss.xml');
+define('SEED_RSS_FEED_URL', 'http://127.0.0.1/biology-dept-news.xml');
 define('SEED_HIDDEN_CATEGORY_IDNUMBER', 'HID');
 define('SEED_DATA_ACTIVITY_NAME', 'Lab Specimen Log');
 // Requirement admin-announcement: stable subject of the admin-authored
@@ -68,6 +68,7 @@ function seed_ensure_user($username, $firstname, $lastname, $email) {
 function seed_ensure_category($name, $idnumber, $visible = 1) {
     global $DB;
     if ($cat = $DB->get_record('course_categories', ['idnumber' => $idnumber])) {
+        $DB->set_field('course_categories', 'description', 'Science Department courses and laboratory activities.', ['id' => $cat->id]);
         if ((int)$cat->visible !== (int)$visible) {
             $DB->set_field('course_categories', 'visible', $visible, ['id' => $cat->id]);
             cli_writeln("category visibility normalised: {$name} (id {$cat->id}) visible={$visible}");
@@ -81,7 +82,7 @@ function seed_ensure_category($name, $idnumber, $visible = 1) {
         'name' => $name,
         'idnumber' => $idnumber,
         'visible' => $visible,
-        'description' => 'Seeded science department for tester-env UI assertions.',
+        'description' => 'Science Department courses and laboratory activities.',
         'descriptionformat' => FORMAT_HTML,
     ]);
     cli_writeln("category created: {$name} (id {$cat->id})");
@@ -212,7 +213,7 @@ function seed_ensure_rss_feed($owner) {
     // Requirement rss-feed-block: one own (non-shared) feed owned by the
     // teacher plus an RSS block instance pinned to the BIO101 course page.
     // The feed URL is a static fixture served by this same Apache
-    // (public/tester-env-seed-rss.xml), so viewfeed/block rendering never
+    // (public/biology-dept-news.xml), so viewfeed/block rendering never
     // touches the network. Server-side SimplePie fetches honour Moodle's
     // curl host blocklist, which blocks loopback/private hosts by default;
     // this local test site therefore ships with an empty blocklist.
@@ -221,6 +222,7 @@ function seed_ensure_rss_feed($owner) {
     $DB->set_field('block', 'visible', 1, ['name' => 'rss_client']);
     if ($feed = $DB->get_record('block_rss_client',
             ['userid' => $owner->id, 'title' => SEED_RSS_FEED_TITLE])) {
+        $DB->set_field('block_rss_client', 'description', 'Biology department news and announcements.', ['id' => $feed->id]);
         $DB->set_field('block_rss_client', 'url', SEED_RSS_FEED_URL, ['id' => $feed->id]);
         $DB->set_field('block_rss_client', 'skiptime', 0, ['id' => $feed->id]);
         $DB->set_field('block_rss_client', 'skipuntil', 0, ['id' => $feed->id]);
@@ -230,7 +232,7 @@ function seed_ensure_rss_feed($owner) {
         $feed->userid = $owner->id;
         $feed->title = SEED_RSS_FEED_TITLE;
         $feed->preferredtitle = SEED_RSS_FEED_TITLE;
-        $feed->description = 'Seeded department news feed for RSS block assertions.';
+        $feed->description = 'Biology department news and announcements.';
         $feed->shared = 0;
         $feed->url = SEED_RSS_FEED_URL;
         $feed->skiptime = 0;
@@ -292,6 +294,7 @@ function seed_ensure_data_activity($courseid) {
     require_once($CFG->dirroot . '/mod/data/lib.php');
     require_once($CFG->dirroot . '/mod/data/locallib.php');
     if ($data = $DB->get_record('data', ['course' => $courseid, 'name' => SEED_DATA_ACTIVITY_NAME])) {
+        $DB->set_field('data', 'intro', 'Biology laboratory specimens and observation notes.', ['id' => $data->id]);
         cli_writeln("database activity exists: " . SEED_DATA_ACTIVITY_NAME . " (id {$data->id})");
     } else {
         $moduleinfo = new stdClass();
@@ -300,7 +303,7 @@ function seed_ensure_data_activity($courseid) {
         $moduleinfo->section = 1;
         $moduleinfo->visible = 1;
         $moduleinfo->name = SEED_DATA_ACTIVITY_NAME;
-        $moduleinfo->intro = 'Seeded log of biology lab specimens for search and filter assertions.';
+        $moduleinfo->intro = 'Biology laboratory specimens and observation notes.';
         $moduleinfo->introformat = FORMAT_HTML;
         $moduleinfo->introeditor = ['text' => $moduleinfo->intro, 'format' => FORMAT_HTML, 'itemid' => 0];
         $moduleinfo->comments = 0;
@@ -436,6 +439,8 @@ function seed_ensure_news_announcement($newsforum, $author, $name, $message) {
 function seed_ensure_assign($courseid, $name, $intro) {
     global $DB;
     if ($a = $DB->get_record('assign', ['course' => $courseid, 'name' => $name])) {
+        $DB->set_field('assign', 'cutoffdate', 0, ['id' => $a->id]);
+        $a->cutoffdate = 0;
         cli_writeln("assignment exists: {$name} (id {$a->id})");
         return $a;
     }
@@ -450,7 +455,7 @@ function seed_ensure_assign($courseid, $name, $intro) {
     $moduleinfo->introeditor = ['text' => $intro, 'format' => FORMAT_HTML, 'itemid' => 0];
     $moduleinfo->allowsubmissionsfromdate = SEED_ASSIGN_OPEN;
     $moduleinfo->duedate = SEED_ASSIGN_DUE;
-    $moduleinfo->cutoffdate = SEED_ASSIGN_DUE;
+    $moduleinfo->cutoffdate = 0;
     $moduleinfo->grade = 100;
     // NOT NULL columns in m_assign have no API-side defaults; mirror the
     // mod_assign behat generator defaults (public/mod/assign/tests/generator/lib.php).

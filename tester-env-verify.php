@@ -83,6 +83,17 @@ if ($bio && $chem) {
     $assign = $DB->get_record('assign', ['course' => $bio->id, 'name' => 'Mitosis Lab Report']);
     check('assignment Mitosis Lab Report in BIO101',
         $assign && (int)$assign->duedate === SEED_ASSIGN_DUE, $assign ? "(id {$assign->id})" : '(missing)');
+    check('assignment permits late work', $assign && (int)$assign->cutoffdate === 0);
+    if ($assign) {
+        require_once($CFG->dirroot . '/mod/assign/locallib.php');
+        $cm = get_coursemodule_from_instance('assign', $assign->id, $bio->id, false, MUST_EXIST);
+        $assignment = new assign(\context_module::instance($cm->id), $cm, $bio);
+        $james = $DB->get_record('user', ['username' => 'student_james', 'deleted' => 0]);
+        check('student_james can edit own submission',
+            $james && $assignment->can_edit_submission($james->id, $james->id));
+        check('assignment has a submission method', $assignment->is_any_submission_plugin_enabled());
+        check('admin remains unenrolled in BIO101', $admin && !is_enrolled($ctxbio, $admin->id));
+    }
     $chemmods = $DB->get_records_sql(
         'SELECT cm.id, m.name AS modname FROM {course_modules} cm JOIN {modules} m ON m.id = cm.module
           WHERE cm.course = :cid AND cm.deletioninprogress = 0',
@@ -136,7 +147,7 @@ if ($bio && $chem) {
     $feed = $DB->get_record('block_rss_client', ['title' => 'Biology Dept News']);
     check('rss feed Biology Dept News owned by teacher_maria',
         $feed && $t && (int)$feed->userid === (int)$t->id
-            && $feed->url === 'http://127.0.0.1/tester-env-seed-rss.xml'
+            && $feed->url === 'http://127.0.0.1/biology-dept-news.xml'
             && (int)$feed->shared === 0 && (int)$feed->skipuntil === 0,
         $feed ? "(id {$feed->id})" : '(missing)');
     $rssblock = $DB->get_record('block', ['name' => 'rss_client']);

@@ -1,13 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Tester-env deterministic fixture: static department news feed for the
-     seeded RSS block in BIO101 (moodle-rss-viewfeed-course-scope seed).
-     Served by Apache from the web root as /tester-env-seed-rss.xml.
-     Fixed items; never fetched from the network. -->
+<!-- Biology department news and announcements. -->
 <rss version="2.0">
   <channel>
     <title>Biology Dept News</title>
     <link>http://example.com/biology-news</link>
-    <description>Seeded Springfield Science Department announcements for RSS block assertions.</description>
+    <description>Springfield Science Department announcements.</description>
     <item>
       <title>Spring term lab schedule published</title>
       <link>http://example.com/biology-news/lab-schedule</link>

@@ -4,7 +4,7 @@
 # Strategy: webserver built from Dockerfile.web (runtime base
 # moodlehq/moodle-php-apache:8.3 + php tuning) with the fork's
 # v5.2.3 source bind-mounted from the repo root, so mutations need no rebuild.
-# DB is postgres:17. No subnet pin (default pools; host LAN is 192.168/16).
+# DB is postgres:17. An explicitly reserved subnet is required for managed runs.
 services:
   webserver:
     build:
@@ -57,13 +57,12 @@ volumes:
   moodledata:
     name: moodle-moodledata${RUN_ID_SUFFIX:-}
 
-# Daemon default pools exhausted: pin a free 10.x /24 verified against
-# `ip route` + `docker network inspect` (10.202.0.0/24 unused; host LAN is
-# 192.168.0.0/24 and 10.8.0.0/24 is LAN-routed -- both avoided).
+# Supply MOODLE_SUBNET only after checking Docker subnets and host routes.
+# Managed runs are serialized; never reuse the legacy default project/network.
 networks:
   default:
     name: tester-env-moodle${RUN_ID_SUFFIX:-}-net
     driver: bridge
     ipam:
       config:
-        - subnet: 10.202.0.0/24
+        - subnet: ${MOODLE_SUBNET:?Set a verified free subnet for this managed run}
